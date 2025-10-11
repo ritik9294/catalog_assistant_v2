@@ -239,9 +239,13 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 
             with st.container(border=True):
                 for spec in specs:
-                    spec_col1, spec_col2 = st.columns(2)
-                    spec_col1.markdown(f"**{spec.get('attribute', 'N/A')}**")
-                    spec_col2.write(f"{spec.get('value', 'N/A')}")
+                    spec_html = f"""
+                            <div class="spec-row">
+                                <span class="spec-key">{spec.get('attribute', 'N/A')}</span>
+                                <span class="spec-value">{spec.get('value', 'N/A')}</span>
+                            </div>
+                        """
+                    st.markdown(spec_html, unsafe_allow_html=True)
         else:
             st.write("No specifications were generated.")
         
@@ -1253,4 +1257,5 @@ if st.session_state.step == "display_all_results":
         image_bytes_list=result["final_image_bytes_list"],
         image_mime_type=result["image_mime_type"]
         )
+
 
