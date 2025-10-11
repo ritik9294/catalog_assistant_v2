@@ -468,6 +468,8 @@ if "brand_name" not in st.session_state:
     st.session_state.brand_name = None
 if "sku_questions" not in st.session_state:
     st.session_state.sku_questions = []
+if "edit_mode_status" not in st.session_state:
+	st.session_state.edit_mode_status = {}
 
 
 # --- Step 0: Image Upload ---
@@ -1320,6 +1322,7 @@ if st.session_state.step == "display_all_results":
         image_bytes_list=result["final_image_bytes_list"],
         image_mime_type=result["image_mime_type"]
         )
+
 
 
 
