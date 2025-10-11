@@ -316,9 +316,9 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			# Description and Keyword
 			desc_title_col, desc_button_col = st.columns([4, 1])
 	        with desc_title_col:
-	            st.markdown("#### Description") # Using H4 for consistency
-	        with desc_button_col:
-	            st_copy_to_clipboard(listing_data.get('description', ''), "📋 Copy Desc.")
+				st.markdown("#### Description") # Using H4 for consistency
+			with desc_button_col:
+				st_copy_to_clipboard(listing_data.get('description', ''), "📋 Copy Desc.")
 
 			st.write(listing_data.get('description', 'No description available.'))
 			st.markdown("---")
@@ -1322,6 +1322,7 @@ if st.session_state.step == "display_all_results":
         image_bytes_list=result["final_image_bytes_list"],
         image_mime_type=result["image_mime_type"]
         )
+
 
 
 
