@@ -328,6 +328,26 @@ banner_html = f"""
 # The st.markdown function renders the HTML. unsafe_allow_html must be True.
 st.markdown(banner_html, unsafe_allow_html=True)
 
+st.markdown("""
+<style>
+    /* This targets the custom div we will create for our spec rows */
+    .spec-row {
+        display: flex;
+        justify-content: space-between;
+        width: 100%;
+    }
+    /* This targets the attribute name part of the row */
+    .spec-key {
+        font-weight: bold;
+        padding-right: 10px; /* Add some space between key and value */
+    }
+    /* This targets the value part of the row */
+    .spec-value {
+        text-align: right;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 st.write("")
 
 # Initialize session state variables
@@ -1233,3 +1253,4 @@ if st.session_state.step == "display_all_results":
         image_bytes_list=result["final_image_bytes_list"],
         image_mime_type=result["image_mime_type"]
         )
+
