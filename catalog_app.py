@@ -140,129 +140,192 @@ def generate_b2b_catalog_images(product_name, specifications_list):
 
 
 def render_product_listing(product_id, listing_data, image_bytes_list, image_mime_type):
-    """
-    Renders a single product listing, now with an interactive image rotation feature.
-    This version correctly handles both single and multiple image lists.
-    """
+	"""
+	Renders a product listing with two distinct modes: View and Edit.
+	This version is structurally correct and fixes all known bugs.
+	"""
+	edit_key = f"edit_mode_{product_id}"
 
-    col1, col2 = st.columns([1, 2], gap="large")
+	# Check the session state to see if this product should be in edit mode
+	if st.session_state.edit_mode_status.get(edit_key, False):
+		
+		# --- RENDER THE EDITING INTERFACE ---
+		st.info(f"✏️ Editing: {listing_data.get('product_name', '...')}", icon="ℹ️")
+		
+		# The form now contains ONLY the text fields and its own submit buttons.
+		with st.form(key=f"edit_form_{product_id}"):
+			st.header("Edit Product Details")
+			
+			# --- Editable Fields ---
+			edited_name = st.text_input("Product Name", value=listing_data.get('product_name', ''))
+			
+			st.markdown("#### Specifications")
+			specs_to_edit = listing_data.get('specifications', []).copy()
+			with st.container(border=True):
+				for i, spec in enumerate(specs_to_edit):
+					spec_col1, spec_col2 = st.columns(2)
+					spec_col1.text_input(f"Attribute {i+1}", value=spec.get('attribute', ''), key=f"attr_{product_id}_{i}")
+					spec_col2.text_input(f"Value {i+1}", value=spec.get('value', ''), key=f"val_{product_id}_{i}")
+			
+			st.markdown("#### Description")
+			edited_desc = st.text_area("Description", value=listing_data.get('description', ''), height=200)
+			
+			st.markdown("**Primary Keyword**")
+			edited_keyword = st.text_input("Keyword", value=listing_data.get('primary_keyword', ''))
 
-    with col1:
-        # --- NEW: Interactive Image Selector and Rotation ---
-        if image_bytes_list:
-            # Determine the currently selected image index
-            # We use a unique key for each product's selector
-            selector_key = f"image_selector_{product_id}"
+			st.markdown("---")
+			
+			# --- Form Submission Buttons (Correctly placed INSIDE the form) ---
+			submit_col1, submit_col2 = st.columns(2)
+			with submit_col1:
+				save_button_pressed = st.form_submit_button("💾 Save Changes", use_container_width=True, type="primary")
+			with submit_col2:
+				cancel_button_pressed = st.form_submit_button("❌ Cancel", use_container_width=True)
+
+		# --- Logic to handle submission (happens AFTER the form block) ---
+		if save_button_pressed:
+			edited_specs_on_submit = []
+			for i, spec in enumerate(specs_to_edit):
+				attr_val = st.session_state[f"attr_{product_id}_{i}"]
+				val_val = st.session_state[f"val_{product_id}_{i}"]
+				if attr_val and val_val:
+					edited_specs_on_submit.append({"attribute": attr_val, "value": val_val})
+			
+			listing_data['product_name'] = edited_name
+			listing_data['specifications'] = edited_specs_on_submit
+			listing_data['description'] = edited_desc
+			listing_data['primary_keyword'] = edited_keyword
+			
+			st.session_state.edit_mode_status[edit_key] = False
+			st.success("Changes saved!")
+			st.rerun()
+
+		if cancel_button_pressed:
+			st.session_state.edit_mode_status[edit_key] = False
+			st.rerun()
+
+	else:
+		# --- RENDER THE STANDARD VIEW INTERFACE ---
+		
+		# Floating Edit Icon, pushed to the far right
+		view_col1, view_col2 = st.columns([10, 1])
+		with view_col2:
+			if st.button("✏️", key=f"edit_button_{product_id}", help="Edit this listing"):
+				st.session_state.edit_mode_status[edit_key] = True
+				st.rerun()
+
+		# Main layout for the view mode
+		col1, col2 = st.columns([1, 2], gap="large")
+
+		with col1:
+			# Interactive Image Selector and Rotation
+			if image_bytes_list:
+				selector_key = f"image_selector_{product_id}"
+				selected_index = 0
+				if len(image_bytes_list) > 1:
+					selected_index = st.radio("Select Image View", options=range(len(image_bytes_list)), format_func=lambda i: f"Image {i + 1}", key=selector_key, horizontal=True, label_visibility="collapsed")
+				
+				st.image(image_bytes_list[selected_index], use_container_width=True)
+
+				if st.button("🔄 Rotate Current Image 90°", key=f"rotate_{product_id}", use_container_width=True):
+					try:
+						current_image_bytes = image_bytes_list[selected_index]
+						image = Image.open(io.BytesIO(current_image_bytes))
+						rotated_image = image.rotate(-90, expand=True)
+						buffer = io.BytesIO()
+						rotated_image.save(buffer, format="PNG")
+						image_bytes_list[selected_index] = buffer.getvalue()
+						st.rerun()
+					except Exception as e:
+						st.error(f"Could not rotate image: {e}")
+
+				# Download Logic
+				# --- Download Logic (Handles both single and multiple images) ---
+				if len(image_bytes_list) > 1:
+					# Case 1: Multiple images exist. Offer to download all as a ZIP file.
+					try:
+						# Create an in-memory buffer to hold the ZIP file data
+						zip_buffer = io.BytesIO()
+						
+						# Create a ZIP archive within the buffer
+						with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+							# Generate a clean base filename from the product name
+							product_name_for_file = listing_data.get('product_name', 'product').strip().replace(' ', '_')
+							
+							# Loop through each image and add it to the ZIP file
+							for i, img_bytes in enumerate(image_bytes_list):
+								# Create a unique name for each image inside the ZIP
+								file_in_zip = f"{product_name_for_file}_{i+1}.png"
+								zf.writestr(file_in_zip, img_bytes)
+						
+						# Create the download button for the generated ZIP file
+						st.download_button(
+							label="📥 Download All Images (.zip)",
+							data=zip_buffer.getvalue(),
+							file_name=f"{product_name_for_file}_images.zip",
+							mime="application/zip",
+							use_container_width=True
+						)
+					except Exception as e:
+						st.warning(f"Could not prepare ZIP file for download: {e}")
+				else:
+					# Case 2: Only a single image exists. Offer to download it directly.
+					try:
+						# Generate a clean filename from the product name
+						product_name_for_file = listing_data.get('product_name', 'product').strip().replace(' ', '_')
+						
+						# Create the download button for the single PNG image
+						st.download_button(
+							label="📥 Download Image",
+							data=image_bytes_list[0],
+							file_name=f"{product_name_for_file}.png",
+							mime="image/png", # The MIME type for a PNG image
+							use_container_width=True
+						)
+					except Exception as e:
+						st.warning(f"Could not prepare image for download: {e}")
+			else:
+				st.warning("No images available to display.")
+
+		with col2:
+			# Text content display with copy buttons
+			st.header(listing_data.get('product_name', 'Product Name Not Found'))
+			st_copy_to_clipboard(listing_data.get('product_name', ''), f"copy_name_{product_id}")
+			st.markdown("---")
+
+			# Specifications with Mobile-Friendly CSS
+			spec_title_col, spec_button_col = st.columns([4, 1])
+			with spec_title_col:
+				st.markdown("#### Specification")
+			
+			specs = listing_data.get('specifications', [])
+			if specs and isinstance(specs, list):
+				spec_string_to_copy = "\n".join([f"{spec.get('attribute', 'N/A')}: {spec.get('value', 'N/A')}" for spec in specs])
+				with spec_button_col:
+					st_copy_to_clipboard(spec_string_to_copy, f"copy_specs_{product_id}")
+
+				with st.container(border=True):
+					for spec in specs:
+						spec_html = f"""<div class="spec-row"><span class="spec-key">{spec.get('attribute', 'N/A')}</span><span class="spec-value">{spec.get('value', 'N/A')}</span></div>"""
+						st.markdown(spec_html, unsafe_allow_html=True)
+			else:
+				st.write("No specifications were generated.")
+			
+			st.write("")
+
+			# Description and Keyword
+			desc_title_col, desc_button_col = st.columns([4, 1])
+			with desc_title_col:
+				st.markdown("#### Description")
+			with desc_button_col:
+				st_copy_to_clipboard(listing_data.get('description', ''), f"copy_desc_{product_id}")
+
+			st.write(listing_data.get('description', 'No description available.'))
+			st.markdown("---")
+
+			st.markdown("**Primary Keyword:**")
+			st.code(listing_data.get('primary_keyword', 'N/A'))
             
-            # If there's more than one image, show the selector.
-            if len(image_bytes_list) > 1:
-                selected_index = st.radio(
-                    "Select Image View",
-                    options=range(len(image_bytes_list)),
-                    format_func=lambda i: f"Image {i + 1}",
-                    key=selector_key,
-                    horizontal=True,
-                    label_visibility="collapsed"
-                )
-            else:
-                # If there's only one image, the index is always 0.
-                selected_index = 0
-
-            # Display the currently selected image
-            st.image(image_bytes_list[selected_index], use_container_width=True)
-
-            # Add the Rotate button, which acts on the selected image
-            if st.button("🔄 Rotate Current Image 90°", key=f"rotate_{product_id}", use_container_width=True):
-                try:
-                    current_image_bytes = image_bytes_list[selected_index]
-                    image = Image.open(io.BytesIO(current_image_bytes))
-                    rotated_image = image.rotate(-90, expand=True)
-                    
-                    buffer = io.BytesIO()
-                    rotated_image.save(buffer, format="PNG")
-                    
-                    # Overwrite the old image data in the list with the new rotated data
-                    image_bytes_list[selected_index] = buffer.getvalue()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Could not rotate image: {e}")
-
-            # --- Download Logic (Handles both single and multiple images) ---
-            if len(image_bytes_list) > 1:
-                # Download All as ZIP
-                try:
-                    zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                        product_name_for_file = listing_data.get('product_name', 'product').strip().replace(' ', '_')
-                        for i, img_bytes in enumerate(image_bytes_list):
-                            zf.writestr(f"{product_name_for_file}_{i+1}.png", img_bytes)
-                    st.download_button(
-                        label="📥 Download All Images (.zip)",
-                        data=zip_buffer.getvalue(),
-                        file_name=f"{product_name_for_file}_images.zip",
-                        mime="application/zip",
-                        use_container_width=True
-                    )
-                except Exception as e:
-                    st.warning(f"Could not prepare ZIP file: {e}")
-            else:
-                # Download Single Image
-                try:
-                    product_name_for_file = listing_data.get('product_name', 'product').strip().replace(' ', '_')
-                    st.download_button(
-                        label="📥 Download Image",
-                        data=image_bytes_list[0],
-                        file_name=f"{product_name_for_file}.png",
-                        mime="image/png",
-                        use_container_width=True
-                    )
-                except Exception as e:
-                    st.warning(f"Could not prepare image for download: {e}")
-        else:
-            st.warning("No images available to display.")
-
-    with col2:
-        # The entire display logic for text content is unchanged and remains correct.
-        st.header(listing_data.get('product_name', 'Product Name Not Found'))
-        st_copy_to_clipboard(listing_data.get('product_name', ''), f"📋 Copy Name")
-        st.markdown("---")
-
-        spec_title_col, spec_button_col = st.columns([4, 1])
-        with spec_title_col:
-            st.markdown("#### Specification")
-        
-        specs = listing_data.get('specifications', [])
-        if specs and isinstance(specs, list):
-            spec_string_to_copy = "\n".join([f"{spec.get('attribute', 'N/A')}: {spec.get('value', 'N/A')}" for spec in specs])
-            with spec_button_col:
-                st_copy_to_clipboard(spec_string_to_copy, f"📋 Copy Specs")
-
-            with st.container(border=True):
-                for spec in specs:
-                    spec_html = f"""
-                            <div class="spec-row">
-                                <span class="spec-key">{spec.get('attribute', 'N/A')}</span>
-                                <span class="spec-value">{spec.get('value', 'N/A')}</span>
-                            </div>
-                        """
-                    st.markdown(spec_html, unsafe_allow_html=True)
-        else:
-            st.write("No specifications were generated.")
-        
-        st.write("")
-
-        desc_title_col, desc_button_col = st.columns([4, 1])
-        with desc_title_col:
-            st.markdown("#### Description") # Using H4 for consistency
-        with desc_button_col:
-            st_copy_to_clipboard(listing_data.get('description', ''), "📋 Copy Desc.")
-
-        st.write(listing_data.get('description', 'No description available.'))
-        st.markdown("---")
-
-        st.markdown("**Primary Keyword:**")
-        st.code(listing_data.get('primary_keyword', 'N/A'))
-
 def reset_session_state():
     """Resets the session state to start a new cataloging process."""
     usage = st.session_state.get("usage_stats", {}) 
@@ -1257,5 +1320,6 @@ if st.session_state.step == "display_all_results":
         image_bytes_list=result["final_image_bytes_list"],
         image_mime_type=result["image_mime_type"]
         )
+
 
 
