@@ -548,6 +548,8 @@ if "edit_mode_status" not in st.session_state:
 	st.session_state.edit_mode_status = {}
 if "user_model_number" not in st.session_state:
 	st.session_state.user_model_number = None
+if "confirm_source_image" not in st.session_state:
+    st.session_state.confirm_source_image = None
 
 
 # --- Step 0: Image Upload ---
@@ -914,12 +916,7 @@ if st.session_state.step == "quality_check":
 			issues = [key for key, value in quality_results.items() if value]
 			if not issues:
 				st.success("Image quality check passed!")
-
-				if st.session_state.get("is_branded_flow"):
-					st.session_state.step = "prompt_for_model_number"
-
-				else:
-					st.session_state.step = "get_critical_attribute"
+				st.session_state.step = "confirm_source_image"
 				st.rerun()
 			else:
 				st.session_state.quality_issues_list = issues 
@@ -936,7 +933,49 @@ if st.session_state.step == "quality_check":
 			st.session_state.step = "quality_fail"
 			st.rerun()
 
-print("Image_Check_Done")
+if st.session_state.step == "confirm_source_image":
+    st.subheader("Confirm Final Product Image")
+    st.info("This image will be used as the reference for all subsequent AI generation steps. Please ensure it is correct.")
+
+    # Display the current working image
+    st.image(st.session_state.image_bytes, use_container_width=True)
+
+    # Create columns for the action buttons
+    col1, col2, col3 = st.columns([1, 2, 1])
+
+    with col1:
+        # --- Add the Rotate Image button ---
+        if st.button("🔄 Rotate 90°", use_container_width=True):
+            try:
+                # Use the same logic from the final render function
+                image = Image.open(io.BytesIO(st.session_state.image_bytes))
+                rotated_image = image.rotate(-90, expand=True)
+                
+                buffer = io.BytesIO()
+                rotated_image.save(buffer, format="PNG")
+                
+                # Overwrite the main working image with the rotated version
+                st.session_state.image_bytes = buffer.getvalue()
+                st.rerun() # Rerun the page to show the rotated image
+            except Exception as e:
+                st.error(f"Could not rotate image: {e}")
+
+    with col2:
+        # --- The "Proceed" button is now the main workflow router ---
+        if st.button("✅ Proceed with this Image", use_container_width=True, type="primary"):
+            # This is where the logic moved from the quality_check step
+            if st.session_state.get("is_branded_flow"):
+                st.session_state.step = "prompt_for_model_number"
+            else:
+                st.session_state.step = "get_critical_attribute"
+            st.rerun()
+
+    with col3:
+        # --- The "Start Over" button ---
+        if st.button("❌ Upload New", use_container_width=True):
+            reset_session_state()
+            st.rerun()
+
 
 # --- NEW STEP: Offer Enhancement for Flawed Images ---
 if st.session_state.step == "offer_enhancement":
@@ -1493,4 +1532,5 @@ if st.session_state.step == "display_all_results":
 		image_bytes_list=result["final_image_bytes_list"],
 		image_mime_type=result["image_mime_type"]
 		)
+
 
