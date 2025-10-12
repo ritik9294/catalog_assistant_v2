@@ -361,7 +361,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 		with col2:
 			# Text content display with copy buttons
 			st.header(listing_data.get('product_name', 'Product Name Not Found'))
-			st_copy_to_clipboard(listing_data.get('product_name', ''), f"copy_name_{product_id}")
+			st_copy_to_clipboard(listing_data.get('product_name', ''), f"📋Copy Name")
 			st.markdown("---")
 
 			# Specifications with Mobile-Friendly CSS
@@ -373,7 +373,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			if specs and isinstance(specs, list):
 				spec_string_to_copy = "\n".join([f"{spec.get('attribute', 'N/A')}: {spec.get('value', 'N/A')}" for spec in specs])
 				with spec_button_col:
-					st_copy_to_clipboard(spec_string_to_copy, f"copy_specs_{product_id}")
+					st_copy_to_clipboard(spec_string_to_copy, f"📋Copy Specs")
 
 				with st.container(border=True):
 					for spec in specs:
@@ -389,7 +389,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			with desc_title_col:
 				st.markdown("#### Description")
 			with desc_button_col:
-				st_copy_to_clipboard(listing_data.get('description', ''), f"copy_desc_{product_id}")
+				st_copy_to_clipboard(listing_data.get('description', ''), f"📋Copy Desc")
 
 			st.write(listing_data.get('description', 'No description available.'))
 			st.markdown("---")
