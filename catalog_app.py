@@ -39,7 +39,6 @@ if "GOOGLE_API_KEY" not in os.environ:
 # --- Helper Functions ---
 
 def safe_json_parse(json_string):
-	"""Safely parses a JSON string, returning None on failure."""
 	try:
 		# The model sometimes wraps the JSON in markdown backticks
 		if json_string.startswith("```json"):
@@ -53,9 +52,6 @@ image_enhancer_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-image-previe
 
 @st.cache_resource
 def get_search_tool():
-	"""
-	Initializes and caches the direct Google Search API Wrapper.
-	"""
 	print("--- Initializing Google Search Tool ---")
 	# This requires GOOGLE_CSE_ID and GOOGLE_API_KEY in your .env file
 	return GoogleSearchAPIWrapper(google_cse_id=os.environ.get("GOOGLE_CSE_ID"))
@@ -365,7 +361,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 		with col2:
 			# Text content display with copy buttons
 			st.header(listing_data.get('product_name', 'Product Name Not Found'))
-			st_copy_to_clipboard(listing_data.get('product_name', ''), f"📋Copy Name")
+			st_copy_to_clipboard(listing_data.get('product_name', ''), f"copy_name_{product_id}")
 			st.markdown("---")
 
 			# Specifications with Mobile-Friendly CSS
@@ -377,7 +373,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			if specs and isinstance(specs, list):
 				spec_string_to_copy = "\n".join([f"{spec.get('attribute', 'N/A')}: {spec.get('value', 'N/A')}" for spec in specs])
 				with spec_button_col:
-					st_copy_to_clipboard(spec_string_to_copy, f"📋Copy Specs")
+					st_copy_to_clipboard(spec_string_to_copy, f"copy_specs_{product_id}")
 
 				with st.container(border=True):
 					for spec in specs:
@@ -393,7 +389,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			with desc_title_col:
 				st.markdown("#### Description")
 			with desc_button_col:
-				st_copy_to_clipboard(listing_data.get('description', ''), f"📋Copy Desc.")
+				st_copy_to_clipboard(listing_data.get('description', ''), f"copy_desc_{product_id}")
 
 			st.write(listing_data.get('description', 'No description available.'))
 			st.markdown("---")
@@ -917,10 +913,11 @@ if st.session_state.step == "quality_check":
 			if not issues:
 				st.success("Image quality check passed!")
 				st.session_state.step = "confirm_source_image"
+
 				st.rerun()
 			else:
 				st.session_state.quality_issues_list = issues 
-				enhanceable_issues = {"is_blurry", "watermark_present", "background_cluttered"}
+				enhanceable_issues = {"is_blurry", "watermark_present", "background_cluttered","is_screenshot"}
 				
 				if any(issue in enhanceable_issues for issue in issues):
 					st.session_state.step = "offer_enhancement"
@@ -932,6 +929,75 @@ if st.session_state.step == "quality_check":
 			st.session_state.quality_issues = "The AI model could not analyze the image."
 			st.session_state.step = "quality_fail"
 			st.rerun()
+
+print("Image_Check_Done")
+
+# --- NEW STEP: Offer Enhancement for Flawed Images ---
+if st.session_state.step == "offer_enhancement":
+	issue_str = ", ".join(st.session_state.quality_issues_list).replace('_', ' ')
+	st.warning(f"Image Quality Warning: The image appears to have some issues: **{issue_str}**.")
+	st.info("I can use AI to try and fix these issues and generate a clean, B2B-standard product image. Would you like to proceed?")
+
+	col1, col2 = st.columns(2)
+	if col1.button("✅ Yes, Attempt AI Enhancement", use_container_width=True):
+		st.session_state.step = "perform_enhancement"
+		st.rerun()
+	
+	if col2.button("🔄 No, I'll Upload a New Image", use_container_width=True):
+		reset_session_state()
+		st.rerun()
+
+# --- NEW STEP: Perform the Image Enhancement ---
+if st.session_state.step == "perform_enhancement":
+	with st.spinner("Enhancing image with AI... This may take a moment."):
+		# Dynamically build the instructions for the prompt based on detected flaws
+		flaw_instructions_map = {
+			"is_blurry": "The image is blurry; regenerate it with sharp focus and clear details.",
+			"watermark_present": "A watermark or logo is present; remove it completely, intelligently filling in the area.",
+			"background_cluttered": "The background is cluttered; replace it with a clean, solid light gray (#f0f0f0) background.",
+			"low_resolution": "The image resolution is low; regenerate it as a high-resolution image (e.g., 1024x1024) with sharp, clear details.",
+			"is_screenshot": "The image appears to be a screenshot; regenerate it as a photorealistic image of the actual product.",
+		}
+
+		instructions = [flaw_instructions_map[issue] for issue in st.session_state.quality_issues_list if issue in flaw_instructions_map]
+		instruction_str = " ".join(instructions)
+
+		enhancement_prompt = f"""
+		You are a professional product photographer and digital retoucher for a high-end B2B e-commerce platform.
+
+		Your task is to regenerate the provided product image to meet our strict catalog standards. The original image has the following quality issues: {instruction_str}
+
+		Follow these critical rules for the regeneration:
+		1. **Fix the specified flaws:** Execute the instructions precisely to correct the issues.
+		2. **Maintain Product Integrity:** Do NOT change the product's design, color, shape, texture, or orientation. The output must be a photorealistic representation of the exact same product.
+		3. **Maintain Content Integrity:** Do NOT change/miss the content of the Image. The output must include exact content of the Image except any watermark/human hand.
+		4. **No Watermarks or Logos:** Ensure that the final image is free of any watermarks, logos, or branding elements.
+		5. **Ensure B2B Standard Background:** The background must be a clean, non-distracting, solid light gray (#f0f0f0) or pure white (#ffffff). Remove all shadows or props unless they are integral to the product itself.
+		6. **Photorealistic Output:** The final result must be a high-resolution, photorealistic image, not a drawing, illustration, or artistic interpretation.
+
+		The final output should be only the regenerated image file.
+		"""
+
+		enhancement_message = HumanMessage(
+			content=[
+				{"type": "text", "text": enhancement_prompt},
+				{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(st.session_state.image_bytes).decode('utf-8')}"}},
+			]
+		)
+
+		# Invoke the powerful image generation model
+		generated_images = invoke_image_model_with_tracking(image_enhancer_llm, enhancement_message)
+		
+		if generated_images and len(generated_images) >= 1:
+			# Extract the raw base64 data
+			st.session_state.enhanced_image_bytes = generated_images[0]
+			st.session_state.step = "confirm_enhancement"
+			st.rerun()
+		else:
+			st.error("Image enhancement failed. The model did not return an image. Please try again with a new upload.")
+			st.session_state.step = "quality_fail"
+			st.rerun()
+
 
 if st.session_state.step == "confirm_source_image":
     st.subheader("Confirm Final Product Image")
@@ -975,73 +1041,6 @@ if st.session_state.step == "confirm_source_image":
         if st.button("❌ Upload New", use_container_width=True):
             reset_session_state()
             st.rerun()
-
-
-# --- NEW STEP: Offer Enhancement for Flawed Images ---
-if st.session_state.step == "offer_enhancement":
-	issue_str = ", ".join(st.session_state.quality_issues_list).replace('_', ' ')
-	st.warning(f"Image Quality Warning: The image appears to have some issues: **{issue_str}**.")
-	st.info("I can use AI to try and fix these issues and generate a clean, B2B-standard product image. Would you like to proceed?")
-
-	col1, col2 = st.columns(2)
-	if col1.button("✅ Yes, Attempt AI Enhancement", use_container_width=True):
-		st.session_state.step = "perform_enhancement"
-		st.rerun()
-	
-	if col2.button("🔄 No, I'll Upload a New Image", use_container_width=True):
-		reset_session_state()
-		st.rerun()
-
-# --- NEW STEP: Perform the Image Enhancement ---
-if st.session_state.step == "perform_enhancement":
-	with st.spinner("Enhancing image with AI... This may take a moment."):
-		# Dynamically build the instructions for the prompt based on detected flaws
-		flaw_instructions_map = {
-			"is_blurry": "The image is blurry; regenerate it with sharp focus and clear details.",
-			"watermark_present": "A watermark or logo is present; remove it completely, intelligently filling in the area.",
-			"background_cluttered": "The background is cluttered; replace it with a clean, solid light gray (#f0f0f0) background.",
-			"low_resolution": "The image resolution is low; regenerate it as a high-resolution image (e.g., 1024x1024) with sharp, clear details."
-			}
-		
-		instructions = [flaw_instructions_map[issue] for issue in st.session_state.quality_issues_list if issue in flaw_instructions_map]
-		instruction_str = " ".join(instructions)
-
-		enhancement_prompt = f"""
-		You are a professional product photographer and digital retoucher for a high-end B2B e-commerce platform.
-
-		Your task is to regenerate the provided product image to meet our strict catalog standards. The original image has the following quality issues: {instruction_str}
-
-		Follow these critical rules for the regeneration:
-		1. **Fix the specified flaws:** Execute the instructions precisely to correct the issues.
-		2. **Maintain Product Integrity:** Do NOT change the product's design, color, shape, texture, or orientation. The output must be a photorealistic representation of the exact same product.
-		3. **Maintain Content Integrity:** Do NOT change/miss the content of the Image. The output must include exact content of the Image except any watermark/human hand.
-		4. **No Watermarks or Logos:** Ensure that the final image is free of any watermarks, logos, or branding elements.
-		5. **Ensure B2B Standard Background:** The background must be a clean, non-distracting, solid light gray (#f0f0f0) or pure white (#ffffff). Remove all shadows or props unless they are integral to the product itself.
-		6. **Photorealistic Output:** The final result must be a high-resolution, photorealistic image, not a drawing, illustration, or artistic interpretation.
-
-		The final output should be only the regenerated image file.
-		"""
-
-		enhancement_message = HumanMessage(
-			content=[
-				{"type": "text", "text": enhancement_prompt},
-				{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(st.session_state.image_bytes).decode('utf-8')}"}},
-			]
-		)
-
-		# Invoke the powerful image generation model
-		generated_images = invoke_image_model_with_tracking(image_enhancer_llm, enhancement_message)
-		
-		if generated_images and len(generated_images) >= 1:
-			# Extract the raw base64 data
-			st.session_state.enhanced_image_bytes = generated_images[0]
-			st.session_state.step = "confirm_enhancement"
-			st.rerun()
-		else:
-			st.error("Image enhancement failed. The model did not return an image. Please try again with a new upload.")
-			st.session_state.step = "quality_fail"
-			st.rerun()
-
 
 # --- NEW STEP: Confirm the Enhanced Image ---
 if st.session_state.step == "confirm_enhancement":
@@ -1532,5 +1531,3 @@ if st.session_state.step == "display_all_results":
 		image_bytes_list=result["final_image_bytes_list"],
 		image_mime_type=result["image_mime_type"]
 		)
-
-
