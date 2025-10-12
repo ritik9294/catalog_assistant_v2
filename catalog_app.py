@@ -281,7 +281,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 		# Floating Edit Icon, pushed to the far right
 		view_col1, view_col2 = st.columns([10, 1])
 		with view_col2:
-			if st.button("✏️", key=f"edit_button_{product_id}", help="Edit this listing"):
+			if st.button("✏️ Edit Product", key=f"edit_button_{product_id}", help="Edit this listing"):
 				st.session_state.edit_mode_status[edit_key] = True
 				st.rerun()
 
@@ -1531,3 +1531,4 @@ if st.session_state.step == "display_all_results":
 		image_bytes_list=result["final_image_bytes_list"],
 		image_mime_type=result["image_mime_type"]
 		)
+
