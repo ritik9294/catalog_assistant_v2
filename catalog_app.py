@@ -4,12 +4,27 @@ import os
 import json
 from PIL import Image # type: ignore
 from dotenv import load_dotenv # type: ignore
-from langchain_core.messages import HumanMessage # type: ignore
-from langchain_google_genai import ChatGoogleGenerativeAI # type: ignore
+from langchain_core.messages import HumanMessage 
+from langchain_google_genai import ChatGoogleGenerativeAI 
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_community.utilities import GoogleSearchAPIWrapper
 import base64
 import warnings
 import io
 import zipfile
+
+# Found existing installation: google-generativeai 0.7.0
+# Uninstalling google-generativeai-0.7.0:
+#   Successfully uninstalled google-generativeai-0.7.0
+# Found existing installation: google-ai-generativelanguage 0.6.5
+# Uninstalling google-ai-generativelanguage-0.6.5:
+#   Successfully uninstalled google-ai-generativelanguage-0.6.5
+# Found existing installation: langchain-google-genai 2.1.12
+# Uninstalling langchain-google-genai-2.1.12:
+#   Successfully uninstalled langchain-google-genai-2.1.12
+# Found existing installation: langchain-core 0.3.79
+# Uninstalling langchain-core-0.3.79:
+#   Successfully uninstalled langchain-core-0.3.79
 
 
 warnings.filterwarnings("ignore")
@@ -21,8 +36,6 @@ if "GOOGLE_API_KEY" not in os.environ:
 	st.error("Google API key not found. Please set it in a .env file.")
 	st.stop()
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
-image_enhancer_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-image-preview", temperature=0.5)
 # --- Helper Functions ---
 
 def safe_json_parse(json_string):
@@ -34,6 +47,21 @@ def safe_json_parse(json_string):
 		return json.loads(json_string)
 	except (json.JSONDecodeError, TypeError):
 		return None
+
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
+image_enhancer_llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-image-preview", temperature=0.5)
+
+@st.cache_resource
+def get_search_tool():
+	"""
+	Initializes and caches the direct Google Search API Wrapper.
+	"""
+	print("--- Initializing Google Search Tool ---")
+	# This requires GOOGLE_CSE_ID and GOOGLE_API_KEY in your .env file
+	return GoogleSearchAPIWrapper(google_cse_id=os.environ.get("GOOGLE_CSE_ID"))
+
+# Load the tool at the start of the app
+search_tool = get_search_tool()
 
 
 ADVANCED_IMAGE_PROMPT = """
@@ -75,9 +103,15 @@ SKU_QUESTION_GENERATION_PROMPT = """
 You are an expert product specialist for the brand "{brand_name}".
 Your goal is to identify the exact product SKU shown in the provided image.
 
+CONTEXT:
+		- Product Type: {product_name}
+		- Raw Web Search Results: {research_summary}
+		- A user-provided image of the product.
+
 1.  **Analyze and Infer:** Analyze the image of the {product_name}. Infer all specifications you can determine visually (e.g., color, basic shape, visible features).
-2.  **Identify Ambiguities:** Based on your knowledge of {brand_name}'s product line, identify 0 to 5 critical, ambiguous specifications that are needed to differentiate this product from other similar models.
-3.  **Generate Questions with Options:** For each ambiguous spec, formulate a question and provide 4 plausible multiple-choice options. These options should be realistic for {brand_name} products. The 5th question can optionally be for the Model Number if it's a key differentiator.
+2.  **Compare with Research:** Compare the visual features from the image with the information in the web search results.
+3.  **Identify Ambiguities:** Use your Google Search tool to find official product information, variations, and specifications for "{brand_name} {product_name}"
+4.  **Generate Questions with Options:** For each ambiguous spec, formulate a question and provide 4 plausible multiple-choice options. These options should be realistic for {brand_name} products. The 5th question can optionally be for the Model Number if it's a key differentiator.
 
 Return a JSON object with a single key "questions". The value should be a list of question objects.
 - If no questions are needed, return an empty list: {{"questions": []}}
@@ -100,6 +134,45 @@ Return a JSON object with a single key "questions". The value should be a list o
 }}
 
 Provide only the JSON response.
+"""
+
+MODEL_VALIDATION_PROMPT = """
+You are an expert product data analyst. Your goal is to find and validate a specific product model on the internet and extract its specifications.
+
+**Inputs:**
+- Brand: "{brand_name}"
+- Product Type: "{product_name}"
+- User-Provided Model Number: "{model_number}"
+- Raw Web Search Results: {research_summary}
+
+**Task:**
+1.  **Validate:** Critically evaluate the search results. If the results are for a different brand, a different product type, or are ambiguous, you MUST consider the model "not found". Do not guess.
+2.  **Extract or Fail:**
+	-   **If Found:** Extract a comprehensive list of key specifications (3-8 attributes) from the reliable source.
+	-   **If Not Found:** Do not return any specifications.
+
+**Output Format:**
+You MUST return a JSON object with two keys:
+1.  "model_found": A boolean (true/false).
+2.  "specifications": A list of attribute-value objects if found, otherwise an empty list.
+
+**Example (Success):**
+{{
+  "model_found": true,
+  "specifications": [
+	{{"attribute": "Capacity", "value": "55Ah"}},
+	{{"attribute": "Voltage", "value": "12V"}},
+	{{"attribute": "Warranty", "value": "48 Months"}}
+  ]
+}}
+
+**Example (Failure):**
+{{
+  "model_found": false,
+  "specifications": []
+}}
+
+Provide only the final JSON response.
 """
 
 ### Part 2: The Code Implementation
@@ -292,7 +365,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 		with col2:
 			# Text content display with copy buttons
 			st.header(listing_data.get('product_name', 'Product Name Not Found'))
-			st_copy_to_clipboard(listing_data.get('product_name', ''), f"📋 Copy Name")
+			st_copy_to_clipboard(listing_data.get('product_name', ''), f"copy_name_{product_id}")
 			st.markdown("---")
 
 			# Specifications with Mobile-Friendly CSS
@@ -304,7 +377,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			if specs and isinstance(specs, list):
 				spec_string_to_copy = "\n".join([f"{spec.get('attribute', 'N/A')}: {spec.get('value', 'N/A')}" for spec in specs])
 				with spec_button_col:
-					st_copy_to_clipboard(spec_string_to_copy,  f"📋 Copy Specs")
+					st_copy_to_clipboard(spec_string_to_copy, f"copy_specs_{product_id}")
 
 				with st.container(border=True):
 					for spec in specs:
@@ -320,7 +393,7 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			with desc_title_col:
 				st.markdown("#### Description")
 			with desc_button_col:
-				st_copy_to_clipboard(listing_data.get('description', ''),  "📋 Copy Desc.")
+				st_copy_to_clipboard(listing_data.get('description', ''), f"copy_desc_{product_id}")
 
 			st.write(listing_data.get('description', 'No description available.'))
 			st.markdown("---")
@@ -339,7 +412,7 @@ def reset_session_state():
 def invoke_text_model_with_tracking(llm, message):
 	"""Invokes a text model, tracks token usage, and returns the response content."""
 	result = llm.invoke([message])
-	print(result)
+	# print(result)
 	usage = result.usage_metadata
 	
 	st.session_state.usage_stats["text_input_tokens"] += usage.get("input_tokens", 0)
@@ -351,6 +424,7 @@ def invoke_text_model_with_tracking(llm, message):
 def invoke_image_model_with_tracking(llm, message):
 	"""Invokes an image model, tracks usage, and returns a list of image bytes."""
 	result = llm.invoke([message])
+	# print(result)
 	usage = result.usage_metadata
 
 	st.session_state.usage_stats["image_input_tokens"] += usage.get("input_tokens", 0)
@@ -472,6 +546,8 @@ if "sku_questions" not in st.session_state:
 	st.session_state.sku_questions = []
 if "edit_mode_status" not in st.session_state:
 	st.session_state.edit_mode_status = {}
+if "user_model_number" not in st.session_state:
+	st.session_state.user_model_number = None
 
 
 # --- Step 0: Image Upload ---
@@ -840,7 +916,7 @@ if st.session_state.step == "quality_check":
 				st.success("Image quality check passed!")
 
 				if st.session_state.get("is_branded_flow"):
-					st.session_state.step = "ask_branded_sku_questions"
+					st.session_state.step = "prompt_for_model_number"
 
 				else:
 					st.session_state.step = "get_critical_attribute"
@@ -946,7 +1022,7 @@ if st.session_state.step == "confirm_enhancement":
 		st.session_state.image_bytes = st.session_state.enhanced_image_bytes
 		st.session_state.image_mime_type = "image/png" # Generated images are typically PNG
 		if st.session_state.get("is_branded_flow"):
-			st.session_state.step = "ask_branded_sku_questions"
+			st.session_state.step = "prompt_for_model_number"
 		else:
 			st.session_state.step = "get_critical_attribute"
 		st.success("Great! Proceeding with the clean image...")
@@ -1006,6 +1082,7 @@ if st.session_state.step == "get_critical_attribute":
 
 
 
+
 if st.session_state.step == "ask_user":
 	st.subheader("Prompt:")
 	st.write("Please provide the following critical attributes for an accurate listing:")
@@ -1035,14 +1112,106 @@ if st.session_state.step == "ask_user":
 			else:
 				st.warning("Please answer all questions.")
 
+
+if st.session_state.step == "prompt_for_model_number":
+	st.subheader(f"Branded Product Identified: {st.session_state.brand_name}")
+	st.write("To get the most accurate specifications, please choose an option below.")
+
+	col1, col2 = st.columns(2)
+
+	if col1.button("✅ I have the Model Number", use_container_width=True, type="primary"):
+		st.session_state.step = "collect_model_number"
+		st.rerun()
+
+	if col2.button("❓ I don't have the Model Number", use_container_width=True):
+		# This proceeds to the original interactive question flow
+		st.session_state.step = "ask_branded_sku_questions"
+		st.rerun()
+
+# --- NEW STEP: Collect the Model Number from the user ---
+if st.session_state.step == "collect_model_number":
+	st.subheader("Enter Product Model Number")
+	with st.form("model_number_form"):
+		model_input = st.text_input("Model Number / Product ID", placeholder="e.g., EKO55L, MREDZ48")
+		submitted = st.form_submit_button("🔍 Search and Validate Online")
+		
+		if submitted and model_input:
+			st.session_state.user_model_number = model_input
+			st.session_state.step = "validate_model_number"
+			st.rerun()
+		elif submitted and not model_input:
+			st.warning("Please enter a model number.")
+
+
+if st.session_state.step == "validate_model_number":
+	with st.spinner(f"Searching the web for '{st.session_state.brand_name} {st.session_state.user_model_number}'..."):
+		
+		search_query = f"official specifications for {st.session_state.brand_name} model {st.session_state.user_model_number}"
+		research_summary = search_tool.run(search_query)
+
+		print(research_summary)
+		
+		prompt = MODEL_VALIDATION_PROMPT.format(
+			brand_name=st.session_state.brand_name,
+			product_name=st.session_state.selected_product,
+			model_number=st.session_state.user_model_number,
+			research_summary=research_summary
+		)
+		
+		contents = [prompt, Image.open(io.BytesIO(st.session_state.image_bytes))]
+		
+		# Call the model with the content and the tool configuration
+		# 
+		message = HumanMessage(content=prompt)
+		response_content = invoke_text_model_with_tracking(llm, message)
+		
+		validation_data = safe_json_parse(response_content)
+
+		if validation_data and validation_data.get("model_found"):
+			# --- SUCCESS CASE ---
+			st.success("Model found online! Specifications have been auto-filled.")
+			
+			# Format the specs found online into the string we need
+			specs = validation_data.get("specifications", [])
+			formatted_specs = ", ".join([f"{spec['attribute']}: {spec['value']}" for spec in specs])
+			st.session_state.critical_attribute = formatted_specs
+			
+			# Bypass all question steps and go straight to customization
+			st.session_state.step = "ask_customization_yes_no"
+			st.rerun()
+		else:
+			# --- FAILURE CASE ---
+			st.error("Model not found on the internet.")
+			st.warning("Please ensure the model number is correct or proceed without it.")
+			
+			if st.button("OK"):
+				# Go back to the decision page
+				st.session_state.user_model_number = None
+				st.session_state.step = "prompt_for_model_number"
+				st.rerun()
+
 if st.session_state.step == "ask_branded_sku_questions":
+
+	with st.spinner(f"Searching the web for '{st.session_state.brand_name} {st.session_state.selected_product}'..."):
+		search_query = f"specifications and variations for {st.session_state.brand_name} {st.session_state.selected_product}"
+		research_summary = search_tool.run(search_query)
+		print(research_summary)
+	
 	with st.spinner(f"Analyzing {st.session_state.brand_name} product to identify key specifications..."):
 		prompt = SKU_QUESTION_GENERATION_PROMPT.format(
 			brand_name=st.session_state.brand_name,
-			product_name=st.session_state.selected_product
+			product_name=st.session_state.selected_product,
+			research_summary=research_summary
 		)
-		message = HumanMessage(content=[{"type": "text", "text": prompt}, 
-		{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(st.session_state.image_bytes).decode('utf-8')}"}},])
+		
+	  
+		message = HumanMessage(
+			content=[
+				{"type": "text", "text": prompt},
+				{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64.b64encode(st.session_state.image_bytes).decode('utf-8')}"}},
+			]
+		)
+
 		response_content = invoke_text_model_with_tracking(llm, message)
 		question_data = safe_json_parse(response_content)
 
