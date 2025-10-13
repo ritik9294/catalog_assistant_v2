@@ -917,7 +917,7 @@ if st.session_state.step == "quality_check":
 				st.rerun()
 			else:
 				st.session_state.quality_issues_list = issues 
-				enhanceable_issues = {"is_blurry", "watermark_present", "background_cluttered","is_screenshot"}
+				enhanceable_issues = {"is_blurry", "watermark_present", "background_cluttered","is_screenshot","human_present"}
 				
 				if any(issue in enhanceable_issues for issue in issues):
 					st.session_state.step = "offer_enhancement"
@@ -952,6 +952,7 @@ if st.session_state.step == "perform_enhancement":
 	with st.spinner("Enhancing image with AI... This may take a moment."):
 		# Dynamically build the instructions for the prompt based on detected flaws
 		flaw_instructions_map = {
+			"human_present": "A human hand or body part is visible. Remove it completely and intelligently reconstruct any obscured areas of both the product and the background. The final result must be seamless and photorealistic, as if the human element was never there.",
 			"is_blurry": "The image is blurry; regenerate it with sharp focus and clear details.",
 			"watermark_present": "A watermark or logo is present; remove it completely, intelligently filling in the area.",
 			"background_cluttered": "The background is cluttered; replace it with a clean, solid light gray (#f0f0f0) background.",
@@ -1575,6 +1576,7 @@ if st.session_state.step == "display_all_results":
 	if st.button("Mischief Managed🪄", key="done_all", use_container_width=True, type="primary"):
 		reset_session_state()
 		st.rerun()
+
 
 
 
