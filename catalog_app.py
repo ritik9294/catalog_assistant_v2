@@ -1044,31 +1044,66 @@ if st.session_state.step == "confirm_source_image":
 
 # --- NEW STEP: Confirm the Enhanced Image ---
 if st.session_state.step == "confirm_enhancement":
-	st.success("✅ AI Enhancement Complete!")
-	st.write("Please review the result. If you are satisfied, we will proceed using the enhanced image.")
-	
-	col1, col2 = st.columns(2)
-	with col1:
-		st.subheader("Before")
-		st.image(st.session_state.uploaded_image, use_container_width=True)
-	with col2:
-		st.subheader("After (AI Enhanced)")
-		st.image(st.session_state.enhanced_image_bytes, use_container_width=True)
+    st.success("✅ AI Enhancement Complete!")
+    st.write("Please review the result. If you are satisfied, use the enhanced image to proceed.")
+    
+    # --- NEW: Main action buttons are now at the TOP ---
+    colA, colB = st.columns(2)
+    with colA:
+        if st.button("👍 Use Enhanced Image", use_container_width=True, type="primary"):
+            # This button will use the (potentially rotated) enhanced image
+            st.session_state.image_bytes = st.session_state.enhanced_image_bytes
+            st.session_state.image_mime_type = "image/png"
+            
+            # Proceed to the correct next step based on the workflow
+            if st.session_state.get("is_branded_flow"):
+                st.session_state.step = "prompt_for_model_number"
+            else:
+                st.session_state.step = "get_critical_attribute"
+            st.success("Great! Proceeding with the clean image...")
+            st.rerun()
 
-	colA, colB = st.columns(2)
-	if colA.button("👍 Use Enhanced Image", use_container_width=True, type="primary"):
-		st.session_state.image_bytes = st.session_state.enhanced_image_bytes
-		st.session_state.image_mime_type = "image/png" # Generated images are typically PNG
-		if st.session_state.get("is_branded_flow"):
-			st.session_state.step = "prompt_for_model_number"
-		else:
-			st.session_state.step = "get_critical_attribute"
-		st.success("Great! Proceeding with the clean image...")
-		st.rerun()
+    with colB:
+        if st.button("🔄 Start Over with a New Image", use_container_width=True):
+            reset_session_state()
+            st.rerun()
 
-	if colB.button("🔄 Start Over with a New Image", use_container_width=True):
-		reset_session_state()
-		st.rerun()
+    # Add a separator for a cleaner layout
+    st.markdown("---")
+
+    # --- Image display is now in the MIDDLE ---
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("Before")
+        st.image(st.session_state.uploaded_image, use_container_width=True)
+    with col2:
+        st.subheader("After (AI Enhanced)")
+        st.image(st.session_state.enhanced_image_bytes, use_container_width=True)
+
+        # --- Rotate button is now at the BOTTOM ---
+        if st.button("🔄 Rotate Enhanced Image 90°", key="rotate_enhancement", use_container_width=True):
+            try:
+                # Get the raw bytes of the image we want to rotate
+                image_to_rotate_bytes = st.session_state.enhanced_image_bytes
+                
+                # Open the image from memory using Pillow
+                image = Image.open(io.BytesIO(image_to_rotate_bytes))
+                
+                # Rotate it 90 degrees clockwise
+                rotated_image = image.rotate(-90, expand=True)
+                
+                # Save the new, rotated image back to an in-memory buffer
+                buffer = io.BytesIO()
+                rotated_image.save(buffer, format="PNG")
+                
+                # Overwrite the session state with the new rotated image
+                st.session_state.enhanced_image_bytes = buffer.getvalue()
+                
+                # Rerun the page immediately to show the rotated image
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not rotate image: {e}")
+
 
 if st.session_state.step == "quality_fail":
 	# Display the persistent error messages
@@ -1540,6 +1575,7 @@ if st.session_state.step == "display_all_results":
 	if st.button("✅ Done - Start a New Session", key="done_all", use_container_width=True, type="primary"):
 		reset_session_state()
 		st.rerun()
+
 
 
 
