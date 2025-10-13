@@ -1554,7 +1554,7 @@ if st.session_state.step == "display_results":
 	)
 	
 	st.markdown("---")
-	if st.button("✅ Done - Start a New Session", key="done_single", use_container_width=True, type="primary"):
+	if st.button("Mischief Managed🪄", key="done_single", use_container_width=True, type="primary"):
 		reset_session_state()
 		st.rerun()
 
@@ -1572,9 +1572,10 @@ if st.session_state.step == "display_all_results":
 		image_mime_type=result["image_mime_type"]
 		)
 	st.markdown("---")
-	if st.button("✅ Done - Start a New Session", key="done_all", use_container_width=True, type="primary"):
+	if st.button("Mischief Managed🪄", key="done_all", use_container_width=True, type="primary"):
 		reset_session_state()
 		st.rerun()
+
 
 
 
