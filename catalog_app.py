@@ -1509,6 +1509,8 @@ if st.session_state.step == "generate_listing":
 		response_content = invoke_text_model_with_tracking(llm, message)
 		listing_data = safe_json_parse(response_content)
 
+		print(listing_data)
+
 		if listing_data:
 			st.session_state.final_listing = listing_data
 			
@@ -1651,6 +1653,7 @@ if st.session_state.step == "display_all_results":
 	if st.button("Mischief Managed🪄", key="done_all", use_container_width=True, type="primary"):
 		reset_session_state()
 		st.rerun()
+
 
 
 
