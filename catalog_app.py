@@ -1422,7 +1422,17 @@ if st.session_state.step == "generate_listing":
 		2. specifications: Extract 3-8 key attributes and their values into a list of JSON objects, like [{{"attribute": "Material", "value": "Stainless Steel 304"}}]. Infer from the image and user input.
 		3. primary_keyword: Derive one singular, industry-specific keyword from the product name.
 		4. description: Write a 100-120 word SEO-friendly description. It must start with 'A' or 'The'. Do not repeat the product name in the body. Highlight benefits, durability, and applications.
+		5. pricing: - Based on the product name, brand, image, and all provided specifications, think of 3-5 common ways this product might be sold in a B2B context (e.g., as a single "Piece", a "Set of 4", a "Dozen", a "Kg", a "Meter").
+					- For EACH of these units, estimate an appropriate B2B market price range in Indian Rupees (₹).
+					- The price for a bulk unit (like "Box of 12") should reflect a slight discount compared to the single-piece price.
+					Example format for pricing: 
+					  "pricing": [
+					   (("unit": "Piece", "price_range": "₹ 4,800 – ₹ 5,500")),
+					   (("unit": "Box of 4", "price_range": "₹ 18,500 – ₹ 21,000")),
+					   (("unit": "Pallet of 20", "price_range": "₹ 90,000 – ₹ 100,000"))
+  ]
 
+		
 		Provide only the final JSON object as your response.
 		"""
 		message = HumanMessage(
@@ -1576,6 +1586,7 @@ if st.session_state.step == "display_all_results":
 	if st.button("Mischief Managed🪄", key="done_all", use_container_width=True, type="primary"):
 		reset_session_state()
 		st.rerun()
+
 
 
 
