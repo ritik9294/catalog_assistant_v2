@@ -212,73 +212,111 @@ def generate_b2b_catalog_images(product_name, specifications_list):
 
 def render_product_listing(product_id, listing_data, image_bytes_list, image_mime_type):
 	"""
-	Renders a product listing with two distinct modes: View and Edit.
-	This version is structurally correct and fixes all known bugs.
+	Renders a product listing with a full View mode and an advanced Edit mode,
+	including a dynamic, editable pricing table.
 	"""
 	edit_key = f"edit_mode_{product_id}"
 
-	# Check the session state to see if this product should be in edit mode
 	if st.session_state.edit_mode_status.get(edit_key, False):
 		
-		# --- RENDER THE EDITING INTERFACE ---
+		# --- RENDER THE ADVANCED EDITING INTERFACE ---
 		st.info(f"✏️ Editing: {listing_data.get('product_name', '...')}", icon="ℹ️")
 		
-		# The form now contains ONLY the text fields and its own submit buttons.
 		with st.form(key=f"edit_form_{product_id}"):
 			st.header("Edit Product Details")
 			
-			# --- Editable Fields ---
+			# --- Editable Text Fields ---
 			edited_name = st.text_input("Product Name", value=listing_data.get('product_name', ''))
 			
 			st.markdown("#### Specifications")
-			specs_to_edit = listing_data.get('specifications', []).copy()
-			with st.container(border=True):
-				for i, spec in enumerate(specs_to_edit):
-					spec_col1, spec_col2 = st.columns(2)
-					spec_col1.text_input(f"Attribute {i+1}", value=spec.get('attribute', ''), key=f"attr_{product_id}_{i}")
-					spec_col2.text_input(f"Value {i+1}", value=spec.get('value', ''), key=f"val_{product_id}_{i}")
+			# We use session state to manage the dynamic list of specs
+			spec_state_key = f"specs_edit_{product_id}"
+			if spec_state_key not in st.session_state:
+				st.session_state[spec_state_key] = listing_data.get('specifications', []).copy()
 			
+			with st.container(border=True):
+				for i, spec in enumerate(st.session_state[spec_state_key]):
+					spec_col1, spec_col2 = st.columns(2)
+					st.session_state[spec_state_key][i]['attribute'] = spec_col1.text_input(f"Attribute {i+1}", value=spec.get('attribute', ''), key=f"attr_{product_id}_{i}")
+					st.session_state[spec_state_key][i]['value'] = spec_col2.text_input(f"Value {i+1}", value=spec.get('value', ''), key=f"val_{product_id}_{i}")
+
 			st.markdown("#### Description")
 			edited_desc = st.text_area("Description", value=listing_data.get('description', ''), height=200)
 			
 			st.markdown("**Primary Keyword**")
 			edited_keyword = st.text_input("Keyword", value=listing_data.get('primary_keyword', ''))
 
+			# --- NEW: Dynamic, Editable Pricing Table ---
+			st.markdown("#### Pricing")
+			pricing_state_key = f"pricing_edit_{product_id}"
+			if pricing_state_key not in st.session_state:
+				st.session_state[pricing_state_key] = listing_data.get('pricing', []).copy()
+
+			with st.container(border=True):
+				# We iterate over a copy of the list to allow for safe deletion
+				for i, price_point in enumerate(st.session_state[pricing_state_key][:]):
+					price_col1, price_col2, price_col3 = st.columns([2, 2, 1])
+					
+					# Create editable fields for unit and price range
+					new_unit = price_col1.text_input(f"Unit {i+1}", value=price_point.get('unit', ''), key=f"unit_{product_id}_{i}")
+					new_price = price_col2.text_input(f"Price Range {i+1}", value=price_point.get('price_range', ''), key=f"price_{product_id}_{i}")
+					
+					# Update the state with the potentially edited values
+					st.session_state[pricing_state_key][i]['unit'] = new_unit
+					st.session_state[pricing_state_key][i]['price_range'] = new_price
+
+					# Add a delete button for each row
+					if price_col3.form_submit_button("🗑️", key=f"delete_price_{product_id}_{i}", help="Delete this price point"):
+						# Remove the item from the list and rerun the form
+						del st.session_state[pricing_state_key][i]
+						st.rerun()
+			
+			# Button to add a new, blank price point
+			if st.form_submit_button("➕ Add New Price Point", use_container_width=True):
+				st.session_state[pricing_state_key].append({"unit": "", "price_range": ""})
+				st.rerun()
+
 			st.markdown("---")
 			
-			# --- Form Submission Buttons (Correctly placed INSIDE the form) ---
+			# --- Form Submission Buttons ---
 			submit_col1, submit_col2 = st.columns(2)
 			with submit_col1:
-				save_button_pressed = st.form_submit_button("💾 Save Changes", use_container_width=True, type="primary")
+				save_button_pressed = st.form_submit_button("💾 Save All Changes", use_container_width=True, type="primary")
 			with submit_col2:
 				cancel_button_pressed = st.form_submit_button("❌ Cancel", use_container_width=True)
 
-		# --- Logic to handle submission (happens AFTER the form block) ---
+		# --- Logic to handle submission ---
 		if save_button_pressed:
+            # --- THE FIX: We use the variables returned by the widgets, not session state keys ---
+            
+            # For the dynamic lists, we DO read from session state as that's where we managed them.
 			edited_specs_on_submit = []
-			for i, spec in enumerate(specs_to_edit):
+			for i, spec in enumerate(st.session_state[spec_state_key]):
 				attr_val = st.session_state[f"attr_{product_id}_{i}"]
 				val_val = st.session_state[f"val_{product_id}_{i}"]
 				if attr_val and val_val:
 					edited_specs_on_submit.append({"attribute": attr_val, "value": val_val})
-			
+            
+			final_pricing = [p for p in st.session_state.get(f"pricing_edit_{product_id}", []) if p.get('unit') and p.get('price_range')]
+            
+            # Update the original listing_data dictionary
 			listing_data['product_name'] = edited_name
 			listing_data['specifications'] = edited_specs_on_submit
 			listing_data['description'] = edited_desc
 			listing_data['primary_keyword'] = edited_keyword
-			
+			listing_data['pricing'] = final_pricing
+            
 			st.session_state.edit_mode_status[edit_key] = False
 			st.success("Changes saved!")
 			st.rerun()
-
 		if cancel_button_pressed:
+			# Clean up the temporary edit state
+			del st.session_state[spec_state_key]
+			del st.session_state[pricing_state_key]
 			st.session_state.edit_mode_status[edit_key] = False
 			st.rerun()
 
 	else:
-		# --- RENDER THE STANDARD VIEW INTERFACE ---
-		
-		# Floating Edit Icon, pushed to the far right
 		view_col1, view_col2 = st.columns([3, 1])
 		with view_col2:
 			if st.button("✏️ Edit Product", key=f"edit_button_{product_id}", help="Edit this listing"):
@@ -394,8 +432,35 @@ def render_product_listing(product_id, listing_data, image_bytes_list, image_mim
 			st.write(listing_data.get('description', 'No description available.'))
 			st.markdown("---")
 
+			pricing_data = listing_data.get('pricing', [])
+			
+			if pricing_data:
+				price_map = {item['unit']: item['price_range'] for item in pricing_data}
+				unit_options = list(price_map.keys())
+				price_col, unit_col = st.columns(2)
+				
+				with unit_col:
+					st.markdown("**Unit of Sale:**")
+					selected_unit = st.selectbox(
+					"Unit",
+					options=unit_options,
+					key=f"unit_selector_{product_id}",
+					label_visibility="collapsed"
+				)
+				
+				with price_col:
+					st.markdown("**Market Price Range:**")
+					display_price = price_map.get(selected_unit, "N/A")
+					st.subheader(display_price)
+			else:
+				st.markdown("**Market Price Range:**")
+				st.subheader("Not Available")
+				
+			st.markdown("---")
+
 			st.markdown("**Primary Keyword:**")
 			st.code(listing_data.get('primary_keyword', 'N/A'))
+
 	
 
 def reset_session_state():
@@ -1586,6 +1651,7 @@ if st.session_state.step == "display_all_results":
 	if st.button("Mischief Managed🪄", key="done_all", use_container_width=True, type="primary"):
 		reset_session_state()
 		st.rerun()
+
 
 
 
